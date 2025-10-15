@@ -15,6 +15,7 @@ function Navbar() {
           
           {user ? (
             <>
+              <Link to="/add-product" style={styles.link}>Add Product</Link>
               <Link to="/profile" style={styles.link}>Profile</Link>
               <Link to="/orders" style={styles.link}>Orders</Link>
               <Link to="/cart" style={styles.link}>
