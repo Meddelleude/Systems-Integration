@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { useLocation } from 'react-router-dom';
 import { getProducts, deleteProduct } from '../services/api';
 import { AppContext } from '../context/AppContext';
 
@@ -6,10 +7,11 @@ function ProductList() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const { addToCart, user } = useContext(AppContext);
+  const location = useLocation();
 
   useEffect(() => {
     loadProducts();
-  }, []);
+  }, [location]);
 
   const loadProducts = async () => {
     try {
