@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, AppContext } from './context/AppContext';
 import Navbar from './components/Navbar';
@@ -9,11 +9,12 @@ import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import Orders from './pages/Orders';
 import Profile from './pages/Profile';
+import AddProduct from './pages/AddProduct';
 import './App.css';
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
-  const { user } = React.useContext(AppContext);
+  const { user } = useContext(AppContext);
   
   if (!user) {
     return <Navigate to="/login" />;
@@ -35,6 +36,14 @@ function App() {
             <Route path="/cart" element={<Cart />} />
             
             {/* Protected Routes */}
+            <Route 
+              path="/add-product" 
+              element={
+                <ProtectedRoute>
+                  <AddProduct />
+                </ProtectedRoute>
+              } 
+            />
             <Route 
               path="/checkout" 
               element={
