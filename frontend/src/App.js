@@ -11,6 +11,8 @@ import Orders from './pages/Orders';
 import Profile from './pages/Profile';
 import AddProduct from './pages/AddProduct';
 import './App.css';
+import ERPImport from './pages/ERPImport';
+
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -41,6 +43,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <AddProduct />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/erp-import" 
+              element={
+                <ProtectedRoute>
+                  <ERPImport />
                 </ProtectedRoute>
               } 
             />
