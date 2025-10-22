@@ -4,6 +4,12 @@
 CREATE DATABASE webshop_db;
 
 -- Verbinde dich mit der Datenbank und führe folgendes aus:
+-- create order_status
+CREATE TABLE order_status_mapping (
+  status_code INTEGER PRIMARY KEY,
+  status_name VARCHAR(50) NOT NULL,
+  description TEXT
+);
 
 -- Customers Tabelle
 CREATE TABLE customers (

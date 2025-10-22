@@ -21,25 +21,79 @@ function ERPImport() {
     }
   };
 
-  const handleImportFile = async (filename) => {
-    setLoading(true);
-    setResults(null);
+  const handleImportFile = async (file) => {
+  setLoading(true);
+  setResults(null);
 
-    try {
-      const response = await axios.post(`http://localhost:5000/api/erp-import/import/${filename}`);
-      setResults(response.data);
-      loadPendingFiles(); // Refresh list
-    } catch (error) {
+  try {
+    let endpoint;
+    
+    if (file.type === 'products') {
+      endpoint = `http://localhost:5000/api/erp-import/import/products/${file.name}`;
+    } else if (file.type === 'customers') {
+      endpoint = `http://localhost:5000/api/erp-import/import/customers/${file.name}`;
+    } else if (file.type === 'orderstatus') {
+      endpoint = `http://localhost:5000/api/erp-import/import/orderstatus/${file.name}`;
+    } else {
+      throw new Error('Unknown file type');
+    }
+    
+    const response = await axios.post(endpoint);
+    setResults(response.data);
+    loadPendingFiles();
+  } catch (error) {
+    // Verbesserte Fehlerbehandlung
+    const errorData = error.response?.data;
+    
+    if (errorData) {
+      // Backend hat detaillierte Fehlerdaten zurückgegeben
       setResults({
         success: false,
-        error: error.response?.data?.error || error.message,
-        errors: error.response?.data?.errors || []
+        filename: errorData.filename || file.name,
+        error: errorData.error,
+        errors: errorData.errors || [],
+        imported: errorData.imported || 0,
+        updated: errorData.updated || 0
       });
-    } finally {
-      setLoading(false);
+    } else {
+      // Generischer Fehler
+      setResults({
+        success: false,
+        filename: file.name,
+        error: error.message,
+        errors: []
+      });
     }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
+const handleDeleteFile = async (filename) => {
+  if (!window.confirm(`Are you sure you want to delete ${filename}?`)) {
+    return;
+  }
 
+  setLoading(true);
+
+  try {
+    const response = await axios.delete(`http://localhost:5000/api/erp-import/delete/${filename}`);
+    
+    if (response.data.success) {
+      setResults({
+        success: true,
+        message: `✅ ${response.data.message}`
+      });
+      loadPendingFiles(); // Refresh list
+    }
+  } catch (error) {
+    setResults({
+      success: false,
+      error: `Failed to delete file: ${error.message}`
+    });
+  } finally {
+    setLoading(false);
+  }
+};
   const handleImportAll = async () => {
     if (!window.confirm('Import all pending files?')) return;
 
@@ -64,60 +118,78 @@ function ERPImport() {
     <div style={styles.container}>
       <h2>ERP Product Import</h2>
       <p style={styles.description}>
-        Import product data from ERP system. Place CSV files in the <code>erp_import/</code> directory.
+        Import product data from ERP system.
       </p>
 
       {/* Results Display */}
-      {results && (
-        <div style={results.success ? styles.successBox : styles.errorBox}>
-          <h3>{results.success ? '✅ Import Successful' : '❌ Import Failed'}</h3>
-          
-          {results.results ? (
-            // Multiple files imported
-            <div>
-              <p>Processed {results.totalFiles} file(s), {results.successful} successful</p>
-              {results.results.map((r, i) => (
-                <div key={i} style={styles.resultItem}>
-                  <strong>{r.filename}:</strong> 
-                  {r.success ? (
-                    <span> Imported: {r.imported}, Updated: {r.updated}</span>
-                  ) : (
-                    <span style={{color: 'red'}}> Failed</span>
-                  )}
-                  {r.errors.length > 0 && (
-                    <ul style={styles.errorList}>
-                      {r.errors.map((err, j) => <li key={j}>{err}</li>)}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            // Single file imported
-            <div>
-              {results.filename && <p><strong>File:</strong> {results.filename}</p>}
-              {results.imported !== undefined && <p><strong>New Products:</strong> {results.imported}</p>}
-              {results.updated !== undefined && <p><strong>Updated Products:</strong> {results.updated}</p>}
-              
-              {results.errors && results.errors.length > 0 && (
-                <div>
-                  <h4>Errors:</h4>
-                  <ul style={styles.errorList}>
-                    {results.errors.map((err, i) => <li key={i}>{err}</li>)}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-          
-          <button 
-            onClick={() => navigate('/')} 
-            style={styles.viewProductsButton}
-          >
-            View Products
-          </button>
-        </div>
-      )}
+{results && (
+  <div style={results.success ? styles.successBox : styles.errorBox}>
+    <h3>{results.success ? '✅ Success' : '❌ Failed'}</h3>
+    
+    {/* Nachricht anzeigen (für Delete oder einfache Operationen) */}
+    {results.message && (
+      <p style={{ fontSize: '1.1rem', marginTop: '0.5rem' }}>
+        {results.message}
+      </p>
+    )}
+    
+    {/* Import-spezifische Details */}
+    {results.results ? (
+      // Multiple files imported
+      <div>
+        <p>Processed {results.totalFiles} file(s), {results.successful} successful</p>
+        {results.results.map((r, i) => (
+          <div key={i} style={styles.resultItem}>
+            <strong>{r.filename}:</strong> 
+            {r.success ? (
+              <span> Imported: {r.imported}, Updated: {r.updated}</span>
+            ) : (
+              <span style={{color: 'red'}}> Failed</span>
+            )}
+            {r.errors && r.errors.length > 0 && (
+              <ul style={styles.errorList}>
+                {r.errors.map((err, j) => <li key={j}>{err}</li>)}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    ) : results.filename ? (
+      // Single file imported
+      <div>
+        <p><strong>File:</strong> {results.filename}</p>
+        {results.imported !== undefined && <p><strong>New Items:</strong> {results.imported}</p>}
+        {results.updated !== undefined && <p><strong>Updated Items:</strong> {results.updated}</p>}
+        
+        {results.errors && results.errors.length > 0 && (
+          <div>
+            <h4>Errors:</h4>
+            <ul style={styles.errorList}>
+              {results.errors.map((err, i) => <li key={i}>{err}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+    ) : null}
+    
+    {/* Error-Anzeige */}
+    {results.error && (
+      <p style={{ color: results.success ? 'inherit' : '#721c24', marginTop: '0.5rem' }}>
+        {results.error}
+      </p>
+    )}
+    
+    {/* View Products Button nur bei Import */}
+    {results.success && (results.imported > 0 || results.updated > 0) && (
+      <button 
+        onClick={() => navigate('/')} 
+        style={styles.viewProductsButton}
+      >
+        View Products
+      </button>
+    )}
+  </div>
+)}
 
       {/* Pending Files */}
       <div style={styles.section}>
@@ -147,7 +219,7 @@ function ERPImport() {
 
         {files.length === 0 ? (
           <p style={styles.noFiles}>
-            No files pending. Place CSV files from ERP system in <code>erp_import/</code> directory.
+            No files pending. 
           </p>
         ) : (
           <table style={styles.table}>
@@ -159,44 +231,92 @@ function ERPImport() {
                 <th>Action</th>
               </tr>
             </thead>
-            <tbody>
-              {files.map((file, index) => (
-                <tr key={index}>
-                  <td>{file.name}</td>
-                  <td>{(file.size / 1024).toFixed(2)} KB</td>
-                  <td>{new Date(file.modified).toLocaleString()}</td>
-                  <td>
-                    <button
-                      onClick={() => handleImportFile(file.name)}
-                      style={styles.importButton}
-                      disabled={loading}
-                    >
-                      Import
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+              <tbody>
+  {files.map((file, index) => (
+    <tr key={index}>
+      <td>
+        {file.name}
+        {file.type !== 'unknown' && (
+          <span style={{
+            marginLeft: '0.5rem',
+            padding: '0.2rem 0.5rem',
+            backgroundColor: 
+              file.type === 'products' ? '#007bff' : 
+              file.type === 'customers' ? '#28a745' :
+              file.type === 'orderstatus' ? '#ffc107' : '#6c757d',
+            color: 'white',
+            borderRadius: '4px',
+            fontSize: '0.75rem'
+          }}>
+            {file.type}
+          </span>
+        )}
+      </td>
+      <td>{(file.size / 1024).toFixed(2)} KB</td>
+      <td>{new Date(file.modified).toLocaleString()}</td>
+      <td>
+        <div style={styles.actionButtons}>
+          <button
+            onClick={() => handleImportFile(file)}
+            style={styles.importButton}
+            disabled={loading || file.type === 'unknown'}
+          >
+            📥 Import
+          </button>
+          <button
+            onClick={() => handleDeleteFile(file.name)}
+            style={styles.deleteButton}
+            disabled={loading}
+          >
+            🗑️ Delete
+          </button>
+        </div>
+      </td>
+    </tr>
+  ))}
+</tbody>
           </table>
         )}
       </div>
-
       {/* Instructions */}
-      <div style={styles.infoBox}>
-        <h4>Expected CSV Format:</h4>
-        <pre style={styles.pre}>
-{`product_id,name,description,price
-1,"Laptop","High-performance laptop",999.99
-2,"Mouse","Wireless mouse",29.99`}
-        </pre>
-        <p><strong>Required fields:</strong> product_id, name, price</p>
-        <p><strong>Optional fields:</strong> description</p>
-      </div>
+<div style={styles.infoBox}>
+  <h4> Supported File Types:</h4>
+  <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
+    <li><strong>Products:</strong> File name must contain "product"</li>
+    <li><strong>Customers:</strong> File name must contain "customer"</li>
+    <li><strong>Order Status:</strong> File name must contain "orderstatus"</li>
+  </ul>
+  <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+    
+  </p>
+</div>
     </div>
   );
 }
 
 const styles = {
+   actionButtons: {
+    display: 'flex',
+    gap: '0.5rem',
+  },
+  importButton: {
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    padding: '0.5rem 1rem',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+  },
+  deleteButton: {
+    backgroundColor: '#dc3545',
+    color: 'white',
+    border: 'none',
+    padding: '0.5rem 1rem',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+  },
   container: {
     maxWidth: '1000px',
     margin: '2rem auto',
