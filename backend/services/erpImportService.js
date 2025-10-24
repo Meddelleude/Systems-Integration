@@ -409,7 +409,7 @@ async listPendingFiles() {
         type = 'products';
       } else if (lowerName.includes('customer')) {
         type = 'customers';
-      } else if (lowerName.includes('orderstatus')) {  // ← Sucht nach "orderstatus" zusammen
+      } else if (lowerName.includes('orderstatus') || (lowerName.includes('order') && lowerName.includes('status'))) {
         type = 'orderstatus';
       } else if (lowerName.includes('order')) {
         type = 'orders';
