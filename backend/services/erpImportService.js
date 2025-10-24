@@ -348,7 +348,7 @@ class ERPImportService {
             // Insert mit Standard-Passwort
             await pool.query(
               'INSERT INTO customers (name, email, password, address) VALUES ($1, $2, $3, $4)',
-              [name, email, 'erp_import_2024', address]
+              [name, email, '1234', address]
             );
             result.imported++;
             console.log(`  ✅ Imported: ${name}`);
