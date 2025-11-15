@@ -16,7 +16,19 @@ function Orders() {
   const loadOrders = async () => {
     try {
       const response = await getCustomerOrders(user.id);
-      setOrders(response.data);
+      const data = response.data;
+
+      // Backend may return either an array (ERP reachable) or an object when ERP is unreachable
+      // { erp_unreachable: true, orders: [...] }
+      if (Array.isArray(data)) {
+        setOrders(data);
+      } else if (data && data.erp_unreachable) {
+        setOrders(Array.isArray(data.orders) ? data.orders : []);
+      } else if (data && Array.isArray(data.orders)) {
+        setOrders(data.orders);
+      } else {
+        setOrders([]);
+      }
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {
@@ -39,7 +51,7 @@ function Orders() {
     return (
       <div style={styles.container}>
         <h2>My Orders</h2>
-        <p>You haven't placed any orders yet.</p>
+        <p>{!loading && !orders.length ? 'You have no orders yet.' : 'Loading...'}</p>
       </div>
     );
   }

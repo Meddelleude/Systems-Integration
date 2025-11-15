@@ -13,6 +13,7 @@ app.use('/api/products', require('./routes/products'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/erp-import', require('./routes/erpImport'));
+app.use('/api/erp', require('./routes/erp'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'Webshop API with ERP Integration' });

@@ -3,10 +3,14 @@ import { Link } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 
 function Navbar() {
-  const { user, logout, cart } = useContext(AppContext);
+  const { user, logout, cart, erpReachable } = useContext(AppContext);
 
   return (
-    <nav style={styles.nav}>
+    <div>
+      {!erpReachable && (
+        <div style={styles.banner}>ERP unreachable — showing local data</div>
+      )}
+      <nav style={styles.nav}>
       <div style={styles.container}>
         <Link to="/" style={styles.logo}>WebShop</Link>
         
@@ -33,6 +37,7 @@ function Navbar() {
         </div>
       </div>
     </nav>
+    </div>
   );
 }
 
@@ -49,6 +54,13 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '0 1rem',
+  },
+  banner: {
+    backgroundColor: '#dc3545',
+    color: 'white',
+    padding: '0.4rem 1rem',
+    textAlign: 'center',
+    fontWeight: 'bold'
   },
   logo: {
     fontSize: '1.5rem',

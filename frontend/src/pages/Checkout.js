@@ -13,14 +13,26 @@ function Checkout() {
 
     try {
       const orderData = {
-        customer_id: user.id,
+        customer: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          address: user.address
+        },
         items: cart.map(item => ({
           product_id: item.id,
           quantity: item.quantity
         }))
       };
 
-      await createOrder(orderData);
+      const resp = await createOrder(orderData);
+
+      // Backend will return ERP confirmation; show message accordingly
+      if (resp && resp.data && resp.data.success) {
+        // continue
+      } else if (resp && resp.data && resp.data.erp) {
+        // accept other ERP-style responses
+      }
       clearCart();
       alert('Order placed successfully!');
       navigate('/orders');

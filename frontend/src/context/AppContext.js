@@ -5,6 +5,7 @@ export const AppContext = createContext();
 export const AppProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [cart, setCart] = useState([]);
+  const [erpReachable, setErpReachable] = useState(true);
 
   // User aus localStorage laden
   useEffect(() => {
@@ -17,6 +18,22 @@ export const AppProvider = ({ children }) => {
     if (savedCart) {
       setCart(JSON.parse(savedCart));
     }
+    // Check ERP status on startup
+    const checkErp = async () => {
+      try {
+        const apiBase = process.env.REACT_APP_API_BASE || 'http://localhost:5000';
+        const resp = await fetch(`${apiBase}/api/erp/status`, { cache: 'no-store' });
+        const j = await resp.json();
+        setErpReachable(!!j.reachable);
+      } catch (err) {
+        console.warn('ERP status check failed:', err);
+        setErpReachable(false);
+      }
+    };
+    checkErp();
+    // Poll every 30s
+    const interval = setInterval(checkErp, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   // User login
@@ -86,6 +103,7 @@ export const AppProvider = ({ children }) => {
       login,
       logout,
       cart,
+      erpReachable,
       addToCart,
       removeFromCart,
       updateCartQuantity,
