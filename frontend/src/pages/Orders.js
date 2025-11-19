@@ -5,29 +5,41 @@ import { getCustomerOrders } from '../services/api';
 function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [erpUnavailable, setErpUnavailable] = useState(false);
   const { user } = useContext(AppContext);
 
   useEffect(() => {
     if (user) {
       loadOrders();
     }
+    // optional: poll every 20s to keep statuses up-to-date
+    const pollInterval = setInterval(() => {
+      if (user) loadOrders();
+    }, 20000);
+    return () => clearInterval(pollInterval);
   }, [user]);
 
   const loadOrders = async () => {
     try {
       const response = await getCustomerOrders(user.id);
+      console.debug('GET /api/orders/customer response:', response);
       const data = response.data;
+      console.debug('Parsed orders payload:', data);
 
       // Backend may return either an array (ERP reachable) or an object when ERP is unreachable
       // { erp_unreachable: true, orders: [...] }
       if (Array.isArray(data)) {
         setOrders(data);
+        setErpUnavailable(false);
       } else if (data && data.erp_unreachable) {
         setOrders(Array.isArray(data.orders) ? data.orders : []);
+        setErpUnavailable(true);
       } else if (data && Array.isArray(data.orders)) {
         setOrders(data.orders);
+        setErpUnavailable(false);
       } else {
         setOrders([]);
+        setErpUnavailable(false);
       }
     } catch (error) {
       console.error('Error loading orders:', error);
@@ -36,12 +48,63 @@ function Orders() {
     }
   };
 
+  const handleRefresh = async () => {
+    setLoading(true);
+    console.debug('Manual refresh triggered');
+    await loadOrders();
+    setLoading(false);
+  };
+
   const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending': return '#ffc107';
-      case 'shipped': return '#17a2b8';
-      case 'completed': return '#28a745';
-      default: return '#6c757d';
+    // status may already be normalized strings (pending,picked,shipped,completed,canceled)
+    // or numeric codes as strings/nums. Normalize first.
+    const s = String(status).toLowerCase();
+    switch (s) {
+      case '-10':
+      case 'canceled':
+      case 'cancelled':
+        return '#6c757d'; // gray
+      case '10':
+      case 'new':
+      case 'pending':
+        return '#ffc107'; // yellow
+      case '20':
+      case 'picked':
+        return '#17a2b8'; // teal
+      case '30':
+      case 'shipped':
+        return '#007bff'; // blue
+      case '40':
+      case 'completed':
+        return '#28a745'; // green
+      default:
+        return '#6c757d';
+    }
+  };
+
+  const getStatusLabel = (status) => {
+    const s = String(status).toLowerCase();
+    switch (s) {
+      case '-10':
+      case 'canceled':
+      case 'cancelled':
+        return 'Canceled';
+      case '10':
+      case 'new':
+      case 'pending':
+        return 'New';
+      case '20':
+      case 'picked':
+        return 'Picked';
+      case '30':
+      case 'shipped':
+        return 'Shipped';
+      case '40':
+      case 'completed':
+        return 'Completed';
+      default:
+        // capitalize word if possible
+        return String(status).charAt(0).toUpperCase() + String(status).slice(1);
     }
   };
 
@@ -59,6 +122,10 @@ function Orders() {
   return (
     <div style={styles.container}>
       <h2>My Orders</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <button onClick={handleRefresh} style={styles.refreshButton}>{loading ? 'Refreshing...' : 'Refresh'}</button>
+        {erpUnavailable && <span style={styles.erpBanner}>ERP unavailable — showing local orders</span>}
+      </div>
       
       {orders.map(order => (
         <div key={order.id} style={styles.orderCard}>
@@ -76,7 +143,7 @@ function Orders() {
                   backgroundColor: getStatusColor(order.status)
                 }}
               >
-                {order.status.toUpperCase()}
+                {getStatusLabel(order.status)}
               </span>
             </div>
           </div>
@@ -148,6 +215,21 @@ const styles = {
     paddingTop: '1rem',
     borderTop: '2px solid #eee',
   },
+  refreshButton: {
+    backgroundColor: '#007bff',
+    color: 'white',
+    border: 'none',
+    padding: '0.5rem 1rem',
+    borderRadius: '4px',
+    cursor: 'pointer'
+  },
+  erpBanner: {
+    color: '#856404',
+    backgroundColor: '#fff3cd',
+    padding: '0.4rem 0.6rem',
+    borderRadius: '4px',
+    fontSize: '0.9rem'
+  }
 };
 
 export default Orders;

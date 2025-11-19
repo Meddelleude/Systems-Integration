@@ -6,6 +6,7 @@ import { createOrder } from '../services/api';
 function Checkout() {
   const { cart, user, getCartTotal, clearCart } = useContext(AppContext);
   const [loading, setLoading] = useState(false);
+  const [orderError, setOrderError] = useState(null);
   const navigate = useNavigate();
 
   const handlePlaceOrder = async () => {
@@ -21,6 +22,7 @@ function Checkout() {
         },
         items: cart.map(item => ({
           product_id: item.id,
+          productName: item.name,
           quantity: item.quantity
         }))
       };
@@ -34,11 +36,21 @@ function Checkout() {
         // accept other ERP-style responses
       }
       clearCart();
+      setOrderError(null);
       alert('Order placed successfully!');
       navigate('/orders');
     } catch (error) {
       console.error('Error placing order:', error);
-      alert('Failed to place order. Please try again.');
+      // If backend reported insufficient stock, set inline error details
+      if (error.response && error.response.status === 409 && error.response.data && error.response.data.details) {
+        const details = error.response.data.details;
+        const lines = details.map(d => `${d.productName}: requested ${d.requested}, available ${d.available}`);
+        setOrderError({ title: 'Insufficient stock', lines });
+      } else if (error.response && error.response.status === 502 && error.response.data && error.response.data.error) {
+        setOrderError({ title: 'ERP Unreachable', lines: [error.response.data.error] });
+      } else {
+        setOrderError({ title: 'Order failed', lines: ['An unknown error occurred. Please try again.'] });
+      }
     } finally {
       setLoading(false);
     }
@@ -89,6 +101,16 @@ function Checkout() {
       >
         {loading ? 'Processing...' : 'Place Order'}
       </button>
+      {orderError && (
+        <div style={styles.errorBox} role="alert">
+          <strong>{orderError.title}</strong>
+          <ul style={styles.errorList}>
+            {orderError.lines.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -128,6 +150,18 @@ const styles = {
     fontSize: '1.1rem',
     borderRadius: '4px',
     cursor: 'pointer',
+  },
+
+  errorBox: {
+    marginTop: '1rem',
+    padding: '1rem',
+    borderRadius: '6px',
+    backgroundColor: '#ffe6e6',
+    color: '#8a1f1f',
+    border: '1px solid #f5c2c2'
+  },
+  errorList: {
+    margin: '0.5rem 0 0 1rem'
   },
   button: {
     backgroundColor: '#007bff',

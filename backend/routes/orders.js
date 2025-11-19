@@ -22,10 +22,12 @@ router.post('/', async (req, res) => {
       try {
         const productRes = await pool.query('SELECT id, name, price FROM products WHERE id = $1', [item.product_id]);
         if (productRes.rows.length === 0) {
-          console.warn(`⚠️  Product ${item.product_id} not found in local DB, will try to fetch from ERP`);
-          // Try to get product info from cart item (frontend may have this)
-          // For now, use placeholder values that will be resolved by ERP
-          enrichedItems.push({ productId: item.product_id, productName: `Product${item.product_id}`, quantity: item.quantity, price: 0 });
+          console.warn(`⚠️  Product ${item.product_id} not found in local DB, will try to use cart-provided name or fall back to placeholder`);
+          // Try to get product info from cart item (frontend may provide productName or name)
+          const providedName = item.productName || item.product_name || item.name || null;
+          const productNameToUse = providedName ? String(providedName) : `Product${item.product_id}`;
+          if (providedName) console.log(`ℹ️ Using product name from request for id=${item.product_id}: ${productNameToUse}`);
+          enrichedItems.push({ productId: item.product_id, productName: productNameToUse, quantity: item.quantity, price: 0 });
         } else {
           const p = productRes.rows[0];
           const price = parseFloat(p.price);
@@ -34,9 +36,44 @@ router.post('/', async (req, res) => {
         }
       } catch (dbErr) {
         console.error(`❌ Error fetching product ${item.product_id}:`, dbErr.message);
-        // Don't fail completely; let ERP validate
-        enrichedItems.push({ productId: item.product_id, productName: `Product${item.product_id}`, quantity: item.quantity, price: 0 });
+        // Try to use cart-provided name if available, otherwise fall back to placeholder
+        const providedName = item.productName || item.product_name || item.name || null;
+        const productNameToUse = providedName ? String(providedName) : `Product${item.product_id}`;
+        enrichedItems.push({ productId: item.product_id, productName: productNameToUse, quantity: item.quantity, price: 0 });
       }
+    }
+
+    // BEFORE sending order to ERP: check live stock via ERP RPC for all products
+    try {
+      const productNames = enrichedItems.map(i => i.productName);
+      const stockMap = await erpRpcClient.getStocks(productNames);
+
+      // Find insufficient items
+      const insufficient = [];
+      for (const it of enrichedItems) {
+        const available = typeof stockMap[it.productName] === 'number' ? stockMap[it.productName] : 0;
+        if (available < it.quantity) {
+          insufficient.push({ productName: it.productName, requested: it.quantity, available });
+        }
+      }
+
+      if (insufficient.length > 0) {
+        console.warn('⚠️ Order blocked due to insufficient stock:', insufficient);
+        return res.status(409).json({ error: 'Insufficient stock', details: insufficient });
+      }
+    } catch (stockErr) {
+      console.error('❌ Failed to verify stock with ERP before creating order:');
+      console.error(stockErr && stockErr.stack ? stockErr.stack : stockErr);
+
+      // Build a safe details object to return to client (avoid exposing stacks in production)
+      const errInfo = {
+        message: stockErr && stockErr.message ? stockErr.message : String(stockErr),
+        code: stockErr && stockErr.code ? stockErr.code : null,
+        status: stockErr && stockErr.response && stockErr.response.status ? stockErr.response.status : null,
+        erpBody: stockErr && stockErr.response && stockErr.response.data ? stockErr.response.data : null
+      };
+
+      return res.status(502).json({ error: 'Failed to verify stock with ERP', details: errInfo });
     }
 
     // Call ERP to create the purchase order in real-time
@@ -80,7 +117,39 @@ router.get('/customer/:customerId', async (req, res) => {
     // Always fetch orders from ERP (system of record)
     let erpOrders;
     try {
+      // First try by email
       erpOrders = await erpRpcClient.getOrdersByCustomerEmail(customer.email);
+
+      // If no results, try variations: lowercased email, exact name, then name contains
+      if ((!erpOrders || (Array.isArray(erpOrders) && erpOrders.length === 0)) && customer.email) {
+        try {
+          const lowerEmail = String(customer.email).toLowerCase();
+          if (lowerEmail !== customer.email) {
+            console.log(`ℹ️ No ERP orders for email ${customer.email}, trying lowercased email ${lowerEmail}`);
+            const byLowerEmail = await erpRpcClient.getOrdersByCustomerEmail(lowerEmail);
+            if (byLowerEmail && byLowerEmail.length > 0) erpOrders = byLowerEmail;
+          }
+        } catch (byEmailLowerErr) {
+          console.warn('⚠️ ERP lookup by lowercased email failed:', byEmailLowerErr && byEmailLowerErr.message ? byEmailLowerErr.message : byEmailLowerErr);
+        }
+      }
+
+      if ((!erpOrders || (Array.isArray(erpOrders) && erpOrders.length === 0)) && customer.name) {
+        console.log(`ℹ️ No ERP orders found for email ${customer.email}, trying lookup by name: ${customer.name}`);
+        try {
+          const byName = await erpRpcClient.getOrdersByCustomerName(customer.name);
+          if (byName && Array.isArray(byName) && byName.length > 0) {
+            erpOrders = byName;
+          } else {
+            // try contains (partial match)
+            console.log(`ℹ️ No exact name match, trying contains search for: ${customer.name}`);
+            const byNameContains = await erpRpcClient.getOrdersByCustomerNameContains(customer.name);
+            if (byNameContains && Array.isArray(byNameContains) && byNameContains.length > 0) erpOrders = byNameContains;
+          }
+        } catch (byNameErr) {
+          console.warn('⚠️ ERP lookup by name/contains failed:', byNameErr && byNameErr.message ? byNameErr.message : byNameErr);
+        }
+      }
     } catch (erpErr) {
       console.error('❌ Failed fetching orders from ERP for', customer.email, erpErr.message || erpErr);
 
@@ -116,11 +185,16 @@ router.get('/customer/:customerId', async (req, res) => {
 
     // Normalize ERP orders to the shape the frontend expects
     const mapStatus = (statusVal) => {
-      // statusVal might be object, number or string
-      const code = (typeof statusVal === 'object' && statusVal && (statusVal.status || statusVal.code))
-        ? statusVal.status || statusVal.code
-        : statusVal;
+      // statusVal might be object, number or string; handle nested shapes and numeric codes
+      let code = statusVal;
 
+      if (typeof statusVal === 'object' && statusVal && !Array.isArray(statusVal)) {
+        // common possibilities: { status: 30 } or { code: 30 }
+        if (statusVal.status !== undefined) code = statusVal.status;
+        else if (statusVal.code !== undefined) code = statusVal.code;
+      }
+
+      // Accept number or string; coerce to string for switch
       switch (String(code)) {
         case '10': return 'pending';
         case '20': return 'picked';
@@ -136,10 +210,19 @@ router.get('/customer/:customerId', async (req, res) => {
       }
     };
 
+    console.log('ℹ️ Raw ERP orders payload length:', Array.isArray(erpOrders) ? erpOrders.length : 0);
+    console.log('ℹ️ Sample ERP order (first):', erpOrders && erpOrders[0] ? JSON.stringify(erpOrders[0], null, 2) : null);
+
     const normalized = (erpOrders || []).map(o => {
       const id = o.orderID || o.orderId || o.OrderID || o.ID || o.cuid || o.id || null;
       const created_at = o.orderDate || o.createdAt || o.created_at || o._createdAt || null;
-      const status = mapStatus(o.orderStatus);
+
+      // ERP may expose the status in different fields; prefer structured -> numeric `orderStatus_status` (CAP generated)
+      const rawStatus = (o.orderStatus !== undefined)
+        ? o.orderStatus
+        : (o.orderStatus_status !== undefined ? o.orderStatus_status : (o.order_status !== undefined ? o.order_status : o.status));
+
+      const status = mapStatus(rawStatus);
       const total_price = o.orderAmount || o.total || o.total_price || o.orderTotal || 0;
 
       const items = (o.items || []).map(it => {

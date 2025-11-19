@@ -89,8 +89,52 @@ module.exports = {
       const qs = `$filter=${encodeURIComponent(filter)}&$expand=${encodeURIComponent(expand)}`;
       const url = `${path}?${qs}`;
 
+      console.log(`🔍 ERP OData GET ${axiosInstance.defaults.baseURL}${url}`);
       const resp = await axiosInstance.get(url, { headers: { Accept: 'application/json' } });
+      console.log(`🔁 ERP responded ${resp.status} ${resp.statusText}`);
       // OData responses usually return { value: [...] }
+      const orders = resp.data.value || resp.data;
+      console.log(`🔢 ERP returned ${Array.isArray(orders) ? orders.length : 'N/A'} orders`);
+      return orders;
+    });
+  },
+
+  // Fetch orders for a customer by their name from the ERP OData service
+  async getOrdersByCustomerName(name) {
+    if (!name) throw new Error('name required');
+
+    return retryRequest(async () => {
+      const path = `/odata/v4/simple-erp/Orders`;
+      const safeName = String(name).replace(/'/g, "''");
+      const filter = `customer/name eq '${safeName}'`;
+      const expand = 'customer,items($expand=product)';
+      const qs = `$filter=${encodeURIComponent(filter)}&$expand=${encodeURIComponent(expand)}`;
+      const url = `${path}?${qs}`;
+
+      console.log(`🔍 ERP OData GET ${axiosInstance.defaults.baseURL}${url}`);
+      const resp = await axiosInstance.get(url, { headers: { Accept: 'application/json' } });
+      console.log(`🔁 ERP responded ${resp.status} ${resp.statusText}`);
+      const orders = resp.data.value || resp.data;
+      console.log(`🔢 ERP returned ${Array.isArray(orders) ? orders.length : 'N/A'} orders (contains search)`);
+      return orders;
+    });
+  }
+    ,
+
+  // Fetch orders where customer name contains the given substring (case-insensitive)
+  async getOrdersByCustomerNameContains(namePart) {
+    if (!namePart) throw new Error('namePart required');
+
+    return retryRequest(async () => {
+      const path = `/odata/v4/simple-erp/Orders`;
+      // use contains and tolower to perform case-insensitive substring match
+      const safe = String(namePart).replace(/'/g, "''");
+      const filter = `contains(tolower(customer/name),'${safe.toLowerCase()}')`;
+      const expand = 'customer,items($expand=product)';
+      const qs = `$filter=${encodeURIComponent(filter)}&$expand=${encodeURIComponent(expand)}`;
+      const url = `${path}?${qs}`;
+
+      const resp = await axiosInstance.get(url, { headers: { Accept: 'application/json' } });
       const orders = resp.data.value || resp.data;
       return orders;
     });
@@ -119,9 +163,32 @@ module.exports = {
 
     return retryRequest(async () => {
       const path = `/api/stock-batch`;
-      const resp = await axiosInstance.post(path, { productNames });
-      // Expecting { productName: stock, productName2: stock, ... }
-      return resp.data;
+      try {
+        const resp = await axiosInstance.post(path, { productNames });
+        // Expecting { productName: stock, productName2: stock, ... }
+        return resp.data;
+      } catch (err) {
+        // If ERP does not expose the batch endpoint (404) fall back to individual calls
+        const status = err && err.response && err.response.status;
+        console.warn(`ERP batch stock request failed${status ? ` (status ${status})` : ''}, falling back to single stock requests`);
+
+        if (status === 404) {
+          const result = {};
+          await Promise.all(productNames.map(async (name) => {
+            try {
+              const single = await module.exports.getStock(name);
+              result[name] = typeof single.stock === 'number' ? single.stock : 0;
+            } catch (singleErr) {
+              console.error(`Failed to fetch stock for ${name}:`, singleErr && singleErr.message ? singleErr.message : singleErr);
+              result[name] = 0;
+            }
+          }));
+          return result;
+        }
+
+        // rethrow other errors to be handled by retryRequest
+        throw err;
+      }
     });
   }
 };
