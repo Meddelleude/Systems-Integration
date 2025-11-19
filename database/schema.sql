@@ -5,6 +5,7 @@ CREATE DATABASE webshop_db;
 
 -- Verbinde dich mit der Datenbank und führe folgendes aus:
 -- create order_status
+
 CREATE TABLE order_status_mapping (
   status_code INTEGER PRIMARY KEY,
   status_name VARCHAR(50) NOT NULL,
@@ -55,3 +56,4 @@ INSERT INTO products (name, description, price, stock) VALUES
 ('Laptop', 'High-performance laptop', 999.99, 10),
 ('Mouse', 'Wireless mouse', 29.99, 50),
 ('Keyboard', 'Mechanical keyboard', 79.99, 30);
+ALTER TABLE products ADD CONSTRAINT unique_product_name UNIQUE (name);
