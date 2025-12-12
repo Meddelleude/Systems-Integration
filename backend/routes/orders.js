@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const erpRpcClient = require('../services/erpRpcClient');
+const messagingService = require('../services/messagingService');
 
 // POST neue Bestellung erstellen
 router.post('/', async (req, res) => {
@@ -76,27 +77,27 @@ router.post('/', async (req, res) => {
       return res.status(502).json({ error: 'Failed to verify stock with ERP', details: errInfo });
     }
 
-    // Call ERP to create the purchase order in real-time
+    // Send order via RabbitMQ message queue instead of direct RPC
     const orderPayload = {
       customer,
       items: enrichedItems,
       total
     };
 
-    console.log('📤 Sending order to ERP:', JSON.stringify(orderPayload, null, 2));
+    console.log('📤 Sending order via RabbitMQ:', JSON.stringify(orderPayload, null, 2));
 
     let erpResp;
     try {
-      erpResp = await erpRpcClient.createPurchaseOrder(orderPayload);
-      console.log('✅ ERP order created successfully:', erpResp);
-    } catch (rpcErr) {
-      console.error('❌ ERP RPC failed:', rpcErr.message);
-      console.error('Full error:', rpcErr);
-      return res.status(502).json({ error: 'Failed to create order in ERP', details: rpcErr.message });
+      // Send order request and wait for response (with correlation ID)
+      erpResp = await messagingService.sendOrderRequest(orderPayload);
+      console.log('✅ ERP order created successfully via messaging:', erpResp);
+    } catch (msgErr) {
+      console.error('❌ Messaging/ERP failed:', msgErr.message);
+      console.error('Full error:', msgErr);
+      return res.status(502).json({ error: 'Failed to create order via messaging', details: msgErr.message });
     }
 
-    // ERP should be source of truth; we return ERP response to client.
-    // Optionally, the webshop could store a local reference here (not implemented).
+    // ERP response received via message queue
     return res.status(201).json({ success: true, erp: erpResp });
   } catch (err) {
     console.error('❌ Unexpected error in order creation:', err.message);
